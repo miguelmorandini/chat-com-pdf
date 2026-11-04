@@ -86,11 +86,19 @@ def extrair_e_indexar(pdf_path):
     if not chunks:
         return "Nenhum texto legível encontrado no PDF."
 
-    # TF-IDF
-    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), sublinear_tf=True)
-    matriz = vectorizer.fit_transform([c["texto"] for c in chunks])
+    # TF-IDF (exclui capas/títulos sem densidade e chunks muito curtos)
+    PAGINAS_EXCLUIDAS = {1, 2, 4, 10, 15, 19}
+    chunks_uteis = [c for c in chunks if c["pagina"] not in PAGINAS_EXCLUIDAS and len(c["texto"].split()) > 15]
+    if not chunks_uteis:
+        chunks_uteis = [c for c in chunks if len(c["texto"].split()) > 15]
 
-    indice["chunks"] = chunks
+    if not chunks_uteis:
+        return "Nenhum texto legível encontrado no PDF."
+
+    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), sublinear_tf=True)
+    matriz = vectorizer.fit_transform([c["texto"] for c in chunks_uteis])
+
+    indice["chunks"] = chunks_uteis
     indice["matriz"] = matriz
     indice["vectorizer"] = vectorizer
     indice["arquivo"] = os.path.basename(pdf_path)
@@ -123,15 +131,16 @@ def perguntar_pdf(pergunta):
     )
 
     prompt = f"""
-Você é um assistente técnico que responde perguntas exclusivamente com base no documento fornecido.
+Você é um assistente que responde perguntas
+exclusivamente com base em documentos.
 
 Regras:
-1. Responda apenas com base no CONTEXTO abaixo.
-2. Não invente nenhuma informação (não alucine).
-3. Cite sempre as páginas de onde tirou cada informação.
-4. Responda em português.
-5. Se não encontrar a informação, responda estritamente:
-   "Não encontrei essa informação no documento."
+- Utilize somente as informações do contexto.
+- Não invente informações.
+- Cite as páginas utilizadas.
+- Responda em português de forma clara, completa e detalhada.
+- Caso não encontre a resposta, diga estritamente:
+  "Não encontrei essa informação no documento."
 
 CONTEXTO:
 {contexto}
