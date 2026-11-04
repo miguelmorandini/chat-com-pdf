@@ -103,7 +103,7 @@ def extrair_e_indexar(pdf_path):
     indice["vectorizer"] = vectorizer
     indice["arquivo"] = os.path.basename(pdf_path)
 
-    return f"✓ Documento '{indice['arquivo']}' indexado com sucesso! ({len(chunks)} chunks gerados de {len(paginas)} páginas)."
+    return f"Documento '{indice['arquivo']}' indexado com sucesso ({len(chunks_uteis)} chunks gerados de {len(paginas)} paginas)."
 
 def perguntar_pdf(pergunta):
     """Pipeline RAG anti-alucinação."""
@@ -166,9 +166,9 @@ def chat_fn(mensagem, historico):
         return "Digite uma pergunta válida."
     return perguntar_pdf(mensagem)
 
-with gr.Blocks(title="Chat com PDF — Assistente RAG") as demo:
-    gr.Markdown("# 📄 Chat com PDF — Assistente RAG com Google Gemini")
-    gr.Markdown("Faça upload de qualquer PDF e tire dúvidas técnicas. As respostas citam as páginas de referência e previnem alucinações.")
+with gr.Blocks(title="Chat com PDF - Assistente RAG") as demo:
+    gr.Markdown("# Chat com PDF - Assistente RAG com Google Gemini")
+    gr.Markdown("Faca upload de qualquer PDF para tirar duvidas tecnicas. As respostas citam as paginas de referencia e evitam alucinacoes.")
     
     with gr.Row():
         with gr.Column(scale=1):
