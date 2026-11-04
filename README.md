@@ -127,6 +127,26 @@ Abra o notebook diretamente na nuvem:
 
 ---
 
+## 2. Assistente Databricks & Pipeline de Ingestao Contínua
+
+O segundo projeto (`databricks_rag_assistant.ipynb`) conta com um **pipeline de ingestao incremental automatizado** (`src/ingest_pipeline.py`) que mantem a base de conhecimento sempre sincronizada com o site oficial da Databricks:
+
+- **Fonte Oficial:** Leitura automatica do sitemap oficial (`https://docs.databricks.com/sitemap.xml`), cobrindo Lakehouse, Delta Lake, Unity Catalog, Delta Live Tables, Ingestao, Otimizacoes, PySpark e SQL.
+- **Detecção de Mudanças (SHA-256):** Compara o hash do texto de cada pagina com `data/ingestion_state.json`. Paginas inalteradas sao ignoradas (0 tokens consumidos).
+- **Batch Embeddings:** Envia chunks em lotes com `gemini-embedding-001`, reduzindo chamadas a API em ate 90%.
+- **Automacao Semanal no GitHub Actions:** O workflow `.github/workflows/sync_databricks_docs.yml` roda autonomamente todo domingo as 03:00 UTC, atualizando o banco vetorial e salvando as alteracoes no repositorio.
+
+### Como executar o pipeline de ingestao manualmente:
+```bash
+# Simular a varredura sem gastar tokens (dry-run):
+python src/ingest_pipeline.py --dry-run --max-pages 20
+
+# Executar a ingestao real de 50 paginas:
+python src/ingest_pipeline.py --max-pages 50
+```
+
+---
+
 ## Validacao do Desafio
 
 | Tipo de Teste | Pergunta | Comportamento Esperado |
