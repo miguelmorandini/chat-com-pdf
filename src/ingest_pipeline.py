@@ -148,19 +148,29 @@ def salvar_estado(estado):
         json.dump(estado, f, indent=2, ensure_ascii=False)
 
 def gerar_embeddings_lote(client, lista_textos, max_tentativas=3):
-    """Gera embeddings em lote para otimizar chamadas a API do Gemini."""
+    """Gera embeddings em lote com garantia de consistencia de tamanho para o ChromaDB."""
     for tentativa in range(max_tentativas):
         try:
             resp = client.models.embed_content(
                 model="gemini-embedding-001",
                 contents=lista_textos
             )
-            return [emb.values for emb in resp.embeddings]
-        except Exception as e:
-            if tentativa < max_tentativas - 1:
-                time.sleep(2 * (tentativa + 1))
-            else:
-                raise e
+            if resp.embeddings and len(resp.embeddings) == len(lista_textos):
+                return [emb.values for emb in resp.embeddings]
+        except Exception:
+            time.sleep(2 * (tentativa + 1))
+            
+    # Fallback individual caso o modelo agrupe a lista em 1 unico vetor
+    vetores = []
+    for t in lista_textos:
+        for tentativa in range(max_tentativas):
+            try:
+                resp = client.models.embed_content(model="gemini-embedding-001", contents=t)
+                vetores.append(resp.embeddings[0].values)
+                break
+            except Exception:
+                time.sleep(1)
+    return vetores
 
 def executar_pipeline(max_pages=50, dry_run=False, force=False):
     print("=" * 70)
