@@ -1,18 +1,22 @@
-# Chat com PDF — IA Generativa e RAG
+# Projetos de RAG com Google Gemini
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/chat_com_pdf.ipynb)
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
-![Google Gemini](https://img.shields.io/badge/Google%20Gemini-GenAI%20SDK-orange?logo=google)
-![Gradio](https://img.shields.io/badge/UI-Gradio-ff7c00?logo=gradio)
-![License](https://img.shields.io/badge/License-MIT-green)
+Este repositorio reune duas abordagens complementares de aplicacao da arquitetura **RAG (Retrieval-Augmented Generation)** com o **Google Gemini**:
 
-Assistente de perguntas e respostas baseado em documentos PDF utilizando a arquitetura RAG (Retrieval-Augmented Generation) com a API do Google Gemini e interface web em Gradio.
-
-O projeto resolve o desafio de mitigar alucinacoes ao responder sobre documentos tecnicos, garantindo respostas embasadas exclusivamente no texto fornecido e citando a numeracao das paginas consultadas.
+1. **[Chat com PDF](chat_com_pdf.ipynb):** Implementacao leve e direta para responder perguntas sobre documentos em PDF utilizando PyPDF2 e TF-IDF (Desafio Inicial).
+2. **[Assistente Databricks](databricks_rag_assistant.ipynb):** Plataforma avancada de RAG multi-documentos utilizando a documentacao tecnica oficial de Databricks, com **ChromaDB** e **Google Embeddings (`text-embedding-004`)**.
 
 ---
 
-## Objetivo e Requisitos
+## Notebooks Disponiveis
+
+| Notebook | Foco | Recuperacao | Armazenamento | LLM | Abrir no Colab |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`chat_com_pdf.ipynb`** | PDF Unico (Delta Lake eBook) | TF-IDF + Cosseno | Em memoria | `gemini-3.5-flash-lite` | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/chat_com_pdf.ipynb) |
+| **`databricks_rag_assistant.ipynb`** | Multi-Docs (Databricks Knowledge Base) | Embeddings Semanticos | ChromaDB Local | `gemini-3.5-flash-lite` | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/databricks_rag_assistant.ipynb) |
+
+---
+
+## 1. Chat com PDF (Desafio Inicial)
 
 - **Ambiente:** Executavel no Google Colab e em ambiente local.
 - **Extracao:** Mapeamento de texto por pagina com `PyPDF2`.

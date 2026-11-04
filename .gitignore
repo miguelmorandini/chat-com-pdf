@@ -41,5 +41,8 @@ ENV/
 .ipynb_checkpoints/
 *-checkpoint.ipynb
 
+# Vector DB
+chroma_db/
+
 # Backup files
 chat_com_pdf_original.ipynb
