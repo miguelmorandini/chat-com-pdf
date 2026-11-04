@@ -3,7 +3,7 @@
 Este repositorio reune duas abordagens complementares de aplicacao da arquitetura **RAG (Retrieval-Augmented Generation)** com o **Google Gemini**:
 
 1. **[Chat com PDF](chat_com_pdf.ipynb):** Implementacao leve e direta para responder perguntas sobre documentos em PDF utilizando PyPDF2 e TF-IDF (Desafio Inicial).
-2. **[Assistente Databricks](databricks_rag_assistant.ipynb):** Plataforma avancada de RAG multi-documentos utilizando a documentacao tecnica oficial de Databricks, com **ChromaDB** e **Google Embeddings (`text-embedding-004`)**.
+2. **[Assistente Databricks](databricks_rag_assistant.ipynb):** Plataforma avancada de RAG multi-documentos utilizando a documentacao tecnica oficial de Databricks, com **ChromaDB** e **Google Embeddings (`gemini-embedding-001`)**.
 
 ---
 
