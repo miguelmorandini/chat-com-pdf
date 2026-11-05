@@ -115,6 +115,57 @@ html, body, [class*="css"] {
     margin-top: 12px;
 }
 
+/* Badges de Origem da Resposta */
+.source-pill-local {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.12);
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    margin-bottom: 8px;
+}
+
+.source-pill-online {
+    display: inline-block;
+    background: rgba(168, 85, 247, 0.12);
+    color: #C084FC;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    margin-bottom: 8px;
+}
+
+/* Card Elegante de Aviso de Cota / Rate Limit */
+.rate-limit-card {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 14px 0;
+}
+
+.rate-limit-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #FBBF24;
+    margin-bottom: 4px;
+}
+
+.rate-limit-text {
+    font-size: 12.5px;
+    color: #9CA3AF;
+    margin: 0;
+    line-height: 1.45;
+}
+
 /* Código com JetBrains Mono */
 code, pre {
     font-family: 'JetBrains Mono', Consolas, monospace !important;
@@ -292,11 +343,52 @@ def buscar_documentos_locais(pergunta, top_k=4):
     except Exception:
         return []
 
-def gerar_resposta_stream(pergunta, historico):
+def executar_geracao_llm(prompt):
+    """
+    Executa a geração com tratamento inteligente de stream e fallback de modelo.
+    Retorna uma tupla: (conteudo, sucesso_bool, erro_str).
+    conteudo pode ser um gerador (para write_stream) ou uma string completa.
+    """
+    ultimo_erro = ""
+    for modelo in MODELOS_LLM:
+        try:
+            # 1. Tenta geração em stream
+            stream = client.models.generate_content_stream(
+                model=modelo,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2)
+            )
+            
+            # Gerador protegido que não injeta lixo de erro no texto
+            def stream_seguro():
+                for chunk in stream:
+                    if chunk and chunk.text:
+                        yield chunk.text
+
+            return stream_seguro(), True, ""
+        except Exception as e:
+            ultimo_erro = str(e)
+            continue
+            
+    # Se todos falharem em stream, tenta chamada direta convencional
+    for modelo in MODELOS_LLM:
+        try:
+            resp = client.models.generate_content(
+                model=modelo,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2)
+            )
+            if resp and resp.text:
+                return resp.text.strip(), True, ""
+        except Exception as e:
+            ultimo_erro = str(e)
+            continue
+
+    return None, False, ultimo_erro
+
+def processar_pergunta(pergunta):
     trechos = buscar_documentos_locais(pergunta)
-    
     eh_local = len(trechos) > 0
-    fontes_utilizadas = []
     
     if eh_local:
         contexto = "\n\n".join([
@@ -304,6 +396,7 @@ def gerar_resposta_stream(pergunta, historico):
             for t in trechos
         ])
         fontes_utilizadas = [{"titulo": t["titulo"], "url": t["url"]} for t in trechos]
+        origem = "local"
         prompt = f"""
 Você é o Databricks Assistant, um especialista sênior em Engenharia de Dados no ecossistema Databricks.
 Responda à pergunta do usuário utilizando como base técnica sólida as informações do CONTEXTO abaixo.
@@ -322,7 +415,8 @@ PERGUNTA:
 {pergunta}
 """
     else:
-        # Fallback Especialista Online
+        origem = "docs"
+        fontes_utilizadas = [{"titulo": "Databricks Official Documentation", "url": "https://docs.databricks.com/"}]
         prompt = f"""
 Você é o Databricks Assistant, especialista sênior em Engenharia de Dados no ecossistema Databricks.
 Responda à pergunta técnica do usuário com base rigorosa na documentação oficial da Databricks (docs.databricks.com).
@@ -338,31 +432,15 @@ Diretrizes:
 PERGUNTA:
 {pergunta}
 """
-        fontes_utilizadas = [{"titulo": "Databricks Official Documentation", "url": "https://docs.databricks.com/"}]
 
-    # Executa a geração em streaming
-    for modelo in MODELOS_LLM:
-        try:
-            stream = client.models.generate_content_stream(
-                model=modelo,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2)
-            )
-            
-            # Prefixo com badge de origem
-            if eh_local:
-                yield "📚 **[Base de Conhecimento Local]**\n\n"
-            else:
-                yield "🌐 **[Especialista Databricks Docs]**\n\n"
-                
-            for chunk in stream:
-                if chunk and chunk.text:
-                    yield chunk.text
-            return
-        except Exception:
-            continue
-            
-    yield "⏳ A API do Google Gemini está com limite temporário de requisições. Por favor, aguarde alguns segundos e tente novamente."
+    conteudo, sucesso, erro = executar_geracao_llm(prompt)
+    return {
+        "conteudo": conteudo,
+        "sucesso": sucesso,
+        "erro": erro,
+        "origem": origem,
+        "fontes": fontes_utilizadas
+    }
 
 # -----------------------------------------------------------------------------
 # 7. Layout Principal: Header e Pílulas Rápidas
@@ -410,7 +488,20 @@ for msg in st.session_state.messages:
             st.markdown(msg["content"])
     else:
         with st.chat_message("assistant", avatar="⚡"):
-            st.markdown(msg["content"])
+            # Limpa qualquer resíduo de mensagens anteriores que continham texto acoplado
+            texto_limpo = msg["content"]
+            if "⏳ A API do Google Gemini está com limite" in texto_limpo:
+                texto_limpo = texto_limpo.split("⏳ A API do Google Gemini")[0].strip()
+            texto_limpo = texto_limpo.replace("🌐 [Especialista Databricks Docs]\n\n", "").strip()
+            texto_limpo = texto_limpo.replace("📚 [Base de Conhecimento Local]\n\n", "").strip()
+
+            origem = msg.get("origem", "docs")
+            if origem == "local":
+                st.markdown('<span class="source-pill-local">📚 Base Local (ChromaDB)</span>', unsafe_allow_html=True)
+            else:
+                st.markdown('<span class="source-pill-online">🌐 Documentação Oficial Databricks</span>', unsafe_allow_html=True)
+                
+            st.markdown(texto_limpo)
             if "fontes" in msg and msg["fontes"]:
                 with st.expander("📖 Fontes Oficiais Consultadas", expanded=False):
                     for f in msg["fontes"]:
@@ -432,12 +523,51 @@ if prompt_usuario:
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt_usuario)
 
-    # 2. Gera a resposta com streaming dinâmico
+    # 2. Gera a resposta com streaming dinâmico e tratamento de erros isolado
     with st.chat_message("assistant", avatar="⚡"):
-        resposta_completa = st.write_stream(gerar_resposta_stream(prompt_usuario, st.session_state.messages))
+        res = processar_pergunta(prompt_usuario)
         
-        # Registra no histórico da sessão
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": resposta_completa
-        })
+        if res["sucesso"]:
+            # Renderiza a tag de origem UMA ÚNICA VEZ
+            if res["origem"] == "local":
+                st.markdown('<span class="source-pill-local">📚 Base Local (ChromaDB)</span>', unsafe_allow_html=True)
+            else:
+                st.markdown('<span class="source-pill-online">🌐 Documentação Oficial Databricks</span>', unsafe_allow_html=True)
+                
+            # Exibe o conteúdo (streaming progressivo ou texto)
+            if hasattr(res["conteudo"], "__iter__") and not isinstance(res["conteudo"], str):
+                texto_gerado = st.write_stream(res["conteudo"])
+            else:
+                texto_gerado = res["conteudo"]
+                st.markdown(texto_gerado)
+                
+            # Exibe gaveta de fontes
+            if res.get("fontes"):
+                with st.expander("📖 Fontes Oficiais Consultadas", expanded=False):
+                    for f in res["fontes"]:
+                        st.markdown(f"- [{f['titulo']}]({f['url']})")
+                        
+            # Registra no histórico SOMENTE se for uma resposta válida e completa
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": texto_gerado,
+                "origem": res["origem"],
+                "fontes": res.get("fontes", [])
+            })
+            
+        else:
+            # Exibe o card bonito e amigável de cota, SEM poluir a resposta do chat
+            st.markdown(
+                """
+                <div class="rate-limit-card">
+                    <div class="rate-limit-badge">
+                        <span>⏳</span> Cota Temporária Atingida (Rate Limit do Google AI Studio)
+                    </div>
+                    <p class="rate-limit-text">
+                        A API gratuita da Google atingiu o limite de requisições por minuto ou está com pico momentâneo de fila (503/429).<br>
+                        <strong>Por favor, aguarde cerca de 15 a 30 segundos</strong> para a janela de 1 minuto resetar e envie sua pergunta novamente.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
