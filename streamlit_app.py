@@ -343,6 +343,25 @@ mensagens_atuais = conversa_atual.get("messages", [])
 # -----------------------------------------------------------------------------
 # 4. Autenticação Gemini (Colab, Secrets do Streamlit ou Ambiente)
 # -----------------------------------------------------------------------------
+def extrair_chave(obj):
+    if not obj:
+        return None
+    if isinstance(obj, str):
+        limpa = obj.strip().strip('"').strip("'").strip()
+        if len(limpa) > 10:
+            return limpa
+    elif isinstance(obj, dict):
+        for k in ["GEMINI_API_KEY", "gemini_api_key", "api_key", "key"]:
+            if k in obj:
+                res = extrair_chave(obj[k])
+                if res:
+                    return res
+        for v in obj.values():
+            res = extrair_chave(v)
+            if res:
+                return res
+    return None
+
 def obter_api_key():
     if "api_key" in st.session_state and st.session_state["api_key"]:
         return st.session_state["api_key"]
@@ -350,13 +369,18 @@ def obter_api_key():
     if hasattr(st, "secrets"):
         for k in ["GEMINI_API_KEY", "gemini_api_key", "api_key"]:
             if k in st.secrets:
-                val = st.secrets[k]
-                if isinstance(val, str) and len(val.strip()) > 10:
-                    return val.strip().strip('"').strip("'")
+                res = extrair_chave(st.secrets[k])
+                if res:
+                    return res
+        res = extrair_chave(st.secrets)
+        if res:
+            return res
     
     env_key = os.environ.get("GEMINI_API_KEY")
-    if env_key and len(env_key.strip()) > 10:
-        return env_key.strip().strip('"').strip("'")
+    if env_key:
+        res = extrair_chave(env_key)
+        if res:
+            return res
         
     return None
 
@@ -572,7 +596,13 @@ except Exception:
 # -----------------------------------------------------------------------------
 # 7. Funções RAG e Consulta com Fallback
 # -----------------------------------------------------------------------------
-MODELOS_LLM = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash-lite"]
+MODELOS_LLM = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro"
+]
 
 def buscar_documentos_locais(pergunta, top_k=4):
     if collection is None:
@@ -601,7 +631,14 @@ def buscar_documentos_locais(pergunta, top_k=4):
         return []
 
 def executar_geracao_llm(prompt):
+    """
+    Executa a geração com tratamento inteligente de stream e fallback robusto de modelos.
+    Avança o primeiro chunk para garantir que requisições (429, 400, 503) acionem o fallback
+    imediatamente antes de renderizar para o usuário.
+    """
     ultimo_erro = ""
+    
+    # 1. Tenta streaming testando a resposta inicial de cada modelo
     for modelo in MODELOS_LLM:
         try:
             stream = client.models.generate_content_stream(
@@ -609,17 +646,25 @@ def executar_geracao_llm(prompt):
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0.2)
             )
+            # Avança o gerador para disparar a requisição HTTP e validar a resposta
+            primeiro_chunk = next(stream)
             
-            def stream_seguro():
-                for chunk in stream:
-                    if chunk and chunk.text:
-                        yield chunk.text
+            def gerador_protegido():
+                if primeiro_chunk and primeiro_chunk.text:
+                    yield primeiro_chunk.text
+                try:
+                    for chunk in stream:
+                        if chunk and chunk.text:
+                            yield chunk.text
+                except Exception:
+                    pass
 
-            return stream_seguro(), True, ""
+            return gerador_protegido(), True, ""
         except Exception as e:
             ultimo_erro = str(e)
             continue
             
+    # 2. Se o streaming falhar em todos, tenta chamada direta convencional com cada modelo
     for modelo in MODELOS_LLM:
         try:
             resp = client.models.generate_content(
@@ -779,31 +824,47 @@ if prompt_usuario:
     with st.chat_message("assistant", avatar="⚡"):
         res = processar_pergunta(prompt_usuario)
         
-        if res["sucesso"]:
+        if res["sucesso"] and res["conteudo"] is not None:
             if res["origem"] == "local":
                 st.markdown('<span class="source-pill-local">Base Local (ChromaDB)</span>', unsafe_allow_html=True)
             else:
                 st.markdown('<span class="source-pill-online">Documentação Oficial Databricks</span>', unsafe_allow_html=True)
                 
-            if hasattr(res["conteudo"], "__iter__") and not isinstance(res["conteudo"], str):
-                texto_gerado = st.write_stream(res["conteudo"])
-            else:
-                texto_gerado = res["conteudo"]
-                st.markdown(texto_gerado)
-                
-            if res.get("fontes"):
-                with st.expander("Fontes Oficiais Consultadas", expanded=False):
-                    for f in res["fontes"]:
-                        st.markdown(f"- [{f['titulo']}]({f['url']})")
-                        
-            conversa_atual["messages"].append({
-                "role": "assistant",
-                "content": texto_gerado,
-                "origem": res["origem"],
-                "fontes": res.get("fontes", [])
-            })
-            salvar_historico_disco(session_id, st.session_state.conversations)
-            
+            texto_gerado = ""
+            try:
+                if hasattr(res["conteudo"], "__iter__") and not isinstance(res["conteudo"], str):
+                    texto_gerado = st.write_stream(res["conteudo"])
+                else:
+                    texto_gerado = res["conteudo"]
+                    st.markdown(texto_gerado)
+                    
+                if res.get("fontes"):
+                    with st.expander("Fontes Oficiais Consultadas", expanded=False):
+                        for f in res["fontes"]:
+                            st.markdown(f"- [{f['titulo']}]({f['url']})")
+                            
+                conversa_atual["messages"].append({
+                    "role": "assistant",
+                    "content": texto_gerado,
+                    "origem": res["origem"],
+                    "fontes": res.get("fontes", [])
+                })
+                salvar_historico_disco(session_id, st.session_state.conversations)
+            except Exception:
+                st.markdown(
+                    """
+                    <div class="rate-limit-card">
+                        <div class="rate-limit-badge">
+                            <span>⏳</span> Limite Temporário de Requisições
+                        </div>
+                        <p class="rate-limit-text">
+                            A conexão com a API gratuita da Google foi interrompida ou atingiu a cota por minuto.<br>
+                            Por favor, aguarde cerca de 15 a 30 segundos para a janela resetar e tente novamente.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
         else:
             st.markdown(
                 """
@@ -812,7 +873,7 @@ if prompt_usuario:
                         <span>⏳</span> Cota Temporária Atingida (Rate Limit do Google AI Studio)
                     </div>
                     <p class="rate-limit-text">
-                        A API gratuita da Google atingiu o limite de requisições por minuto ou está com pico momentâneo de fila (503/429).<br>
+                        A API gratuita da Google atingiu o limite de requisições por minuto ou está com fila momentânea (429/503).<br>
                         <strong>Por favor, aguarde cerca de 15 a 30 segundos</strong> para a janela de 1 minuto resetar e envie sua pergunta novamente.
                     </p>
                 </div>
