@@ -251,66 +251,25 @@ code, pre {
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 3. Gerenciamento Persistente de Múltiplas Conversas
+# 3. Gerenciamento de Conversas e Histórico em Memória
 # -----------------------------------------------------------------------------
-SESSIONS_DIR = ".chat_sessions"
-os.makedirs(SESSIONS_DIR, exist_ok=True)
-
-def obter_ou_criar_sessao_id():
-    """Recupera ou gera um identificador único de sessão persistente."""
-    if "session_id" in st.session_state:
-        return st.session_state["session_id"]
-        
-    try:
-        if hasattr(st, "query_params") and "session" in st.query_params:
-            sess_id = str(st.query_params["session"])
-            st.session_state["session_id"] = sess_id
-            return sess_id
-    except Exception:
-        pass
-        
-    novo_id = str(uuid.uuid4())[:10]
-    st.session_state["session_id"] = novo_id
-    try:
-        if hasattr(st, "query_params"):
-            st.query_params["session"] = novo_id
-    except Exception:
-        pass
-        
-    return novo_id
-
-def carregar_historico_disco(session_id):
-    caminho = os.path.join(SESSIONS_DIR, f"{session_id}.json")
-    if os.path.exists(caminho):
-        try:
-            with open(caminho, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def salvar_historico_disco(session_id, conversas):
-    caminho = os.path.join(SESSIONS_DIR, f"{session_id}.json")
-    try:
-        with open(caminho, "w", encoding="utf-8") as f:
-            json.dump(conversas, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-session_id = obter_ou_criar_sessao_id()
-
 if "conversations" not in st.session_state:
-    disco_convs = carregar_historico_disco(session_id)
-    if disco_convs:
-        st.session_state.conversations = disco_convs
-        mais_recente = sorted(
-            disco_convs.items(),
-            key=lambda x: x[1].get("created_at", 0),
-            reverse=True
-        )[0][0]
-        st.session_state.current_conv_id = mais_recente
+    cid_inicial = f"conv_{int(time.time() * 1000)}"
+    st.session_state.conversations = {
+        cid_inicial: {
+            "id": cid_inicial,
+            "title": "Nova conversa",
+            "created_at": time.time(),
+            "messages": []
+        }
+    }
+    st.session_state.current_conv_id = cid_inicial
+
+if "current_conv_id" not in st.session_state or st.session_state.current_conv_id not in st.session_state.conversations:
+    if st.session_state.conversations:
+        st.session_state.current_conv_id = next(iter(st.session_state.conversations))
     else:
-        cid_inicial = f"conv_{int(time.time())}"
+        cid_inicial = f"conv_{int(time.time() * 1000)}"
         st.session_state.conversations = {
             cid_inicial: {
                 "id": cid_inicial,
@@ -320,25 +279,8 @@ if "conversations" not in st.session_state:
             }
         }
         st.session_state.current_conv_id = cid_inicial
-        salvar_historico_disco(session_id, st.session_state.conversations)
-
-if st.session_state.current_conv_id not in st.session_state.conversations:
-    if st.session_state.conversations:
-        st.session_state.current_conv_id = next(iter(st.session_state.conversations))
-    else:
-        cid_novo = f"conv_{int(time.time())}"
-        st.session_state.conversations = {
-            cid_novo: {
-                "id": cid_novo,
-                "title": "Nova conversa",
-                "created_at": time.time(),
-                "messages": []
-            }
-        }
-        st.session_state.current_conv_id = cid_novo
 
 conversa_atual = st.session_state.conversations[st.session_state.current_conv_id]
-mensagens_atuais = conversa_atual.get("messages", [])
 
 # -----------------------------------------------------------------------------
 # 4. Autenticação Gemini (Colab, Secrets do Streamlit ou Ambiente)
@@ -408,9 +350,9 @@ with st.sidebar:
     
     # Botão para criar Nova Conversa
     if st.button("+ Nova Conversa", use_container_width=True, type="primary"):
-        # Se a atual já está vazia, apenas permanece nela
-        if len(conversa_atual.get("messages", [])) > 0 or conversa_atual.get("title") != "Nova conversa":
-            novo_cid = f"conv_{int(time.time())}"
+        # Se a conversa atual já possui mensagens, cria uma nova em branco
+        if len(conversa_atual.get("messages", [])) > 0:
+            novo_cid = f"conv_{int(time.time() * 1000)}"
             st.session_state.conversations[novo_cid] = {
                 "id": novo_cid,
                 "title": "Nova conversa",
@@ -418,54 +360,58 @@ with st.sidebar:
                 "messages": []
             }
             st.session_state.current_conv_id = novo_cid
-            salvar_historico_disco(session_id, st.session_state.conversations)
             st.rerun()
 
-    # Lista de Conversas Anteriores
+    # Lista de Conversas Anteriores (exibe apenas conversas com histórico)
     st.markdown('<div class="sidebar-section-title">Conversas Anteriores</div>', unsafe_allow_html=True)
     
-    conv_ordenadas = sorted(
-        st.session_state.conversations.items(),
+    conversas_com_historico = [
+        (cid, c_data) for cid, c_data in st.session_state.conversations.items()
+        if len(c_data.get("messages", [])) > 0
+    ]
+    
+    conversas_com_historico.sort(
         key=lambda x: x[1].get("created_at", 0),
         reverse=True
     )
     
-    for cid, c_data in conv_ordenadas:
-        is_ativa = (cid == st.session_state.current_conv_id)
-        titulo = c_data.get("title", "Conversa")
-        titulo_display = titulo if len(titulo) <= 26 else titulo[:24] + "..."
-        prefixo = "▸ " if is_ativa else ""
-        btn_label = f"{prefixo}{titulo_display}"
-        
-        if st.button(
-            btn_label,
-            key=f"nav_conv_{cid}",
-            use_container_width=True,
-            type="primary" if is_ativa else "secondary"
-        ):
-            st.session_state.current_conv_id = cid
-            st.rerun()
+    if len(conversas_com_historico) == 0:
+        st.markdown(
+            '<div style="font-size: 12px; color: #8B949E; padding: 4px 0 10px 0;">Nenhuma conversa anterior ainda.</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        for cid, c_data in conversas_com_historico:
+            is_ativa = (cid == st.session_state.current_conv_id)
+            titulo = c_data.get("title", "Conversa")
+            titulo_display = titulo if len(titulo) <= 24 else titulo[:22] + "..."
+            prefixo = "▸ " if is_ativa else ""
+            btn_label = f"{prefixo}{titulo_display}"
+            
+            if st.button(
+                btn_label,
+                key=f"nav_conv_{cid}",
+                use_container_width=True,
+                type="primary" if is_ativa else "secondary"
+            ):
+                st.session_state.current_conv_id = cid
+                st.rerun()
 
     # Gerenciamento da Conversa Atual
-    col_act1, col_act2 = st.columns(2)
-    with col_act1:
-        if st.button("Limpar", use_container_width=True, help="Limpa as mensagens desta conversa"):
-            st.session_state.conversations[st.session_state.current_conv_id]["messages"] = []
-            salvar_historico_disco(session_id, st.session_state.conversations)
-            st.rerun()
-    with col_act2:
-        if len(st.session_state.conversations) > 1:
-            if st.button("Excluir", use_container_width=True, help="Exclui esta conversa do histórico"):
-                cid_remover = st.session_state.current_conv_id
-                del st.session_state.conversations[cid_remover]
-                restantes = sorted(
-                    st.session_state.conversations.items(),
-                    key=lambda x: x[1].get("created_at", 0),
-                    reverse=True
-                )
-                st.session_state.current_conv_id = restantes[0][0]
-                salvar_historico_disco(session_id, st.session_state.conversations)
+    if len(conversa_atual.get("messages", [])) > 0 or len(st.session_state.conversations) > 1:
+        st.markdown('<div class="sidebar-section-title">Opções da Conversa</div>', unsafe_allow_html=True)
+        col_act1, col_act2 = st.columns(2)
+        with col_act1:
+            if st.button("Limpar", use_container_width=True, help="Limpa as mensagens desta conversa"):
+                conversa_atual["messages"] = []
                 st.rerun()
+        with col_act2:
+            if len(st.session_state.conversations) > 1:
+                if st.button("Excluir", use_container_width=True, help="Exclui esta conversa do histórico"):
+                    cid_remover = st.session_state.current_conv_id
+                    del st.session_state.conversations[cid_remover]
+                    st.session_state.current_conv_id = next(iter(st.session_state.conversations))
+                    st.rerun()
 
     # Status de Conexão com Google Gemini
     st.markdown('<div class="sidebar-section-title">Status da Conexão</div>', unsafe_allow_html=True)
@@ -680,10 +626,23 @@ def executar_geracao_llm(prompt):
 
     return None, False, ultimo_erro
 
-def processar_pergunta(pergunta):
+def processar_pergunta(pergunta, historico=None):
     trechos = buscar_documentos_locais(pergunta)
     eh_local = len(trechos) > 0
     
+    # Extrai o contexto das mensagens anteriores para manter a memória do diálogo
+    bloco_historico = ""
+    if historico:
+        turnos = []
+        for h in historico[-6:]:
+            papel = "Usuário" if h.get("role") == "user" else "Assistente"
+            txt = h.get("content", "").strip()
+            if len(txt) > 300:
+                txt = txt[:300] + "..."
+            turnos.append(f"{papel}: {txt}")
+        if turnos:
+            bloco_historico = "HISTÓRICO RECENTE DA CONVERSA:\n" + "\n".join(turnos) + "\n\n"
+
     if eh_local:
         contexto = "\n\n".join([
             f"[Fonte: {t['titulo']} | Link: {t['url']}]\n{t['texto']}"
@@ -693,7 +652,7 @@ def processar_pergunta(pergunta):
         origem = "local"
         prompt = f"""
 Você é o Databricks Assistant, um especialista sênior em Engenharia de Dados no ecossistema Databricks.
-Responda à pergunta do usuário utilizando como base técnica sólida as informações do CONTEXTO abaixo.
+Responda à pergunta do usuário utilizando como base técnica sólida as informações do CONTEXTO e considerando o HISTÓRICO da conversa quando o usuário fizer perguntas de continuação.
 
 Diretrizes:
 1. Responda em português com linguagem técnica, precisa, estruturada e didática.
@@ -702,10 +661,10 @@ Diretrizes:
 4. Se a pergunta for totalmente fora do escopo de dados, tecnologia ou Databricks (ex: futebol, culinária), recuse educadamente dizendo:
    "Não encontrei essa informação na documentação oficial da Databricks."
 
-CONTEXTO:
+{bloco_historico}CONTEXTO:
 {contexto}
 
-PERGUNTA:
+PERGUNTA ATUAL:
 {pergunta}
 """
     else:
@@ -713,7 +672,7 @@ PERGUNTA:
         fontes_utilizadas = [{"titulo": "Databricks Official Documentation", "url": "https://docs.databricks.com/"}]
         prompt = f"""
 Você é o Databricks Assistant, especialista sênior em Engenharia de Dados no ecossistema Databricks.
-Responda à pergunta técnica do usuário com base rigorosa na documentação oficial da Databricks (docs.databricks.com).
+Responda à pergunta técnica do usuário com base rigorosa na documentação oficial da Databricks (docs.databricks.com) e considerando o HISTÓRICO da conversa quando o usuário fizer perguntas de continuação.
 
 Diretrizes:
 1. Responda em português de forma completa, didática e estruturada.
@@ -723,7 +682,7 @@ Diretrizes:
 5. Se for fora do escopo de tecnologia e Databricks (ex: futebol, receitas), responda estritamente:
    "Não encontrei essa informação na documentação oficial da Databricks."
 
-PERGUNTA:
+{bloco_historico}PERGUNTA ATUAL:
 {pergunta}
 """
 
@@ -806,23 +765,25 @@ if "prompt_input" in st.session_state and st.session_state.prompt_input:
     st.session_state.prompt_input = None
 
 if prompt_usuario:
-    # Atualiza o título da conversa se for a primeira mensagem
+    # 1. Captura o histórico atual para fornecer contexto conversacional contínuo ao assistente
+    historico_previo = list(conversa_atual.get("messages", []))
+
+    # 2. Se for a primeira mensagem, define o título com base na pergunta
     if conversa_atual.get("title") == "Nova conversa":
         titulo_gerado = prompt_usuario.strip()
         if len(titulo_gerado) > 28:
             titulo_gerado = titulo_gerado[:26] + "..."
         conversa_atual["title"] = titulo_gerado
 
-    # Registra e renderiza mensagem do usuário
+    # 3. Registra e renderiza mensagem do usuário
     conversa_atual["messages"].append({"role": "user", "content": prompt_usuario})
-    salvar_historico_disco(session_id, st.session_state.conversations)
 
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt_usuario)
 
-    # Executa a geração assistente
+    # 4. Executa a geração assistente considerando o histórico
     with st.chat_message("assistant", avatar="⚡"):
-        res = processar_pergunta(prompt_usuario)
+        res = processar_pergunta(prompt_usuario, historico=historico_previo)
         
         if res["sucesso"] and res["conteudo"] is not None:
             if res["origem"] == "local":
@@ -849,7 +810,6 @@ if prompt_usuario:
                     "origem": res["origem"],
                     "fontes": res.get("fontes", [])
                 })
-                salvar_historico_disco(session_id, st.session_state.conversations)
             except Exception:
                 st.markdown(
                     """
