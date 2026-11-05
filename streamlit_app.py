@@ -350,6 +350,7 @@ with st.sidebar:
     
     # Botão para criar Nova Conversa
     if st.button("+ Nova Conversa", use_container_width=True, type="primary"):
+        st.session_state.prompt_input = None
         # Se a conversa atual já possui mensagens, cria uma nova em branco
         if len(conversa_atual.get("messages", [])) > 0:
             novo_cid = f"conv_{int(time.time() * 1000)}"
@@ -545,9 +546,8 @@ except Exception:
 MODELOS_LLM = [
     "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-1.5-pro"
+    "gemini-1.5-flash-8b",
+    "gemini-2.0-flash-lite"
 ]
 
 def buscar_documentos_locais(pergunta, top_k=4):
@@ -579,10 +579,9 @@ def buscar_documentos_locais(pergunta, top_k=4):
 def executar_geracao_llm(prompt):
     """
     Executa a geração com tratamento inteligente de stream, backoff e fallback robusto de modelos.
-    Avança o primeiro chunk para garantir que requisições (429, 400, 503) acionem o fallback
-    imediatamente antes de renderizar para o usuário.
+    Apenas modelos homologados e disponíveis na API gratuita são acionados.
     """
-    ultimo_erro = ""
+    erros_por_modelo = {}
     
     # 1. Tenta streaming testando a resposta inicial de cada modelo com backoff automático
     for modelo in MODELOS_LLM:
@@ -607,9 +606,9 @@ def executar_geracao_llm(prompt):
 
                 return gerador_protegido(), True, ""
             except Exception as e:
-                ultimo_erro = str(e)
-                # Se for erro de limite por minuto ou fila temporária, aguarda brevemente
-                if any(cod in ultimo_erro for cod in ["429", "503", "RESOURCE_EXHAUSTED", "overloaded"]):
+                err_str = str(e)
+                erros_por_modelo[modelo] = err_str
+                if any(cod in err_str for cod in ["429", "503", "RESOURCE_EXHAUSTED", "overloaded"]):
                     time.sleep(1.2 * (tentativa + 1))
                 else:
                     break
@@ -625,10 +624,19 @@ def executar_geracao_llm(prompt):
             if resp and resp.text:
                 return resp.text.strip(), True, ""
         except Exception as e:
-            ultimo_erro = str(e)
+            erros_por_modelo[f"{modelo}_sync"] = str(e)
             continue
 
-    return None, False, ultimo_erro
+    # Formata relatório consolidado
+    linhas_erro = []
+    for m, err in erros_por_modelo.items():
+        resumo = err.splitlines()[0] if err else "Erro desconhecido"
+        if len(resumo) > 120:
+            resumo = resumo[:118] + "..."
+        linhas_erro.append(f"• {m}: {resumo}")
+    relatorio_erros = "\n".join(linhas_erro)
+
+    return None, False, relatorio_erros
 
 def processar_pergunta(pergunta, historico=None):
     trechos = buscar_documentos_locais(pergunta)
@@ -843,6 +851,7 @@ if prompt_usuario:
 
             erro_detalhe = str(res.get("erro", ""))
             eh_chave_invalida = any(k in erro_detalhe for k in ["API_KEY_INVALID", "API key not valid", "400 INVALID_ARGUMENT"])
+            eh_rate_limit = any(k in erro_detalhe for k in ["429", "RESOURCE_EXHAUSTED", "quota", "overloaded", "503"])
 
             if eh_chave_invalida:
                 st.markdown(
@@ -859,7 +868,7 @@ if prompt_usuario:
                     """,
                     unsafe_allow_html=True
                 )
-            else:
+            elif eh_rate_limit:
                 st.markdown(
                     """
                     <div class="rate-limit-card">
@@ -867,8 +876,23 @@ if prompt_usuario:
                             <span>⏳</span> Cota Temporária Atingida (Rate Limit do Google AI Studio)
                         </div>
                         <p class="rate-limit-text">
-                            A API gratuita da Google atingiu o limite de 15 requisições por minuto ou está com fila momentânea nos servidores.<br>
-                            <strong>Aguarde cerca de 15 a 30 segundos</strong> para a janela de 1 minuto resetar e clique em tentar novamente.
+                            A chave gratuita do Google AI Studio atingiu o limite de 15 requisições por minuto.<br>
+                            <strong>Aguarde cerca de 20 a 30 segundos</strong> para a janela de 1 minuto da Google resetar e clique em tentar novamente.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    """
+                    <div class="rate-limit-card">
+                        <div class="rate-limit-badge">
+                            <span>⚠️</span> Servidores da Google Temporariamente Indisponíveis
+                        </div>
+                        <p class="rate-limit-text">
+                            Os modelos da Google não responderam no momento.<br>
+                            Aguarde alguns segundos e clique em tentar novamente.
                         </p>
                     </div>
                     """,
