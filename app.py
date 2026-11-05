@@ -11,6 +11,34 @@ from sklearn.metrics.pairwise import cosine_similarity
 from google import genai
 import gradio as gr
 
+def extrair_api_key(chave_raw):
+    """Extrai e sanitiza a GEMINI_API_KEY se fornecida como str, dict, json ou outro formato."""
+    if not chave_raw:
+        return None
+    if isinstance(chave_raw, dict):
+        for campo in ["GEMINI_API_KEY", "api_key", "key", "token", "response", "value"]:
+            if campo in chave_raw and isinstance(chave_raw[campo], str):
+                return chave_raw[campo].strip()
+        for v in chave_raw.values():
+            if isinstance(v, str) and len(v.strip()) > 5:
+                return v.strip()
+            elif isinstance(v, dict):
+                res = extrair_api_key(v)
+                if res:
+                    return res
+        return None
+    if isinstance(chave_raw, str):
+        chave_raw = chave_raw.strip()
+        if (chave_raw.startswith("{") and chave_raw.endswith("}")) or (chave_raw.startswith("[") and chave_raw.endswith("]")):
+            try:
+                import json
+                dados = json.loads(chave_raw)
+                return extrair_api_key(dados)
+            except Exception:
+                pass
+        return chave_raw
+    return str(chave_raw).strip() if chave_raw else None
+
 # 1. Autenticação Gemini
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
@@ -20,37 +48,7 @@ if not api_key:
     except Exception:
         pass
 
-# Trata se api_key for um dicionário ou JSON
-if isinstance(api_key, dict):
-    for k in ["GEMINI_API_KEY", "api_key", "key", "token"]:
-        if k in api_key and isinstance(api_key[k], str):
-            api_key = api_key[k]
-            break
-    else:
-        for v in api_key.values():
-            if isinstance(v, str):
-                api_key = v
-                break
-
-if isinstance(api_key, str):
-    api_key = api_key.strip()
-    if api_key.startswith("{") and api_key.endswith("}"):
-        try:
-            import json
-            dados = json.loads(api_key)
-            if isinstance(dados, dict):
-                for k in ["GEMINI_API_KEY", "api_key", "key", "token"]:
-                    if k in dados and isinstance(dados[k], str):
-                        api_key = dados[k].strip()
-                        break
-                else:
-                    for v in dados.values():
-                        if isinstance(v, str):
-                            api_key = v.strip()
-                            break
-        except Exception:
-            pass
-
+api_key = extrair_api_key(api_key)
 client = genai.Client(api_key=api_key) if (api_key and isinstance(api_key, str)) else None
 
 # Estado global da indexação
