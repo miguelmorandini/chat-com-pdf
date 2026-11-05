@@ -46,3 +46,6 @@ chroma_db/
 
 # Backup files
 chat_com_pdf_original.ipynb
+
+# Agents & Assistant metadata
+.agents/

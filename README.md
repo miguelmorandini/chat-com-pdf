@@ -134,6 +134,7 @@ O segundo projeto (`databricks_rag_assistant.ipynb`) conta com um **pipeline de 
 - **Fonte Oficial:** Leitura automatica do sitemap oficial (`https://docs.databricks.com/sitemap.xml`), cobrindo Lakehouse, Delta Lake, Unity Catalog, Delta Live Tables, Ingestao, Otimizacoes, PySpark e SQL.
 - **Detecção de Mudanças (SHA-256):** Compara o hash do texto de cada pagina com `data/ingestion_state.json`. Paginas inalteradas sao ignoradas (0 tokens consumidos).
 - **Batch Embeddings:** Envia chunks em lotes com `gemini-embedding-001`, reduzindo chamadas a API em ate 90%.
+- **Fallback Inteligente com Grounding Oficial (Zero Custo):** Quando o usuario pergunta sobre topicos que ainda nao estao na base local (ChromaDB), o assistente aciona automaticamente o Google Search Grounding restrito a `docs.databricks.com`, garantindo respostas precisas e links oficiais em tempo real sem custo no plano gratuito.
 - **Automacao Semanal no GitHub Actions:** O workflow `.github/workflows/sync_databricks_docs.yml` roda autonomamente todo domingo as 03:00 UTC, atualizando o banco vetorial e salvando as alteracoes no repositorio.
 
 ### Como executar o pipeline de ingestao manualmente:
@@ -155,6 +156,19 @@ python src/ingest_pipeline.py --max-pages 50
 | **Pergunta Tecnica 2** | *What is a Lakehouse and what problems does it solve?* | Resumo conceitual citando as Pag. 5, 6 e 13 |
 | **Pergunta Tecnica 3** | *How does Delta Lake handle ACID transactions?* | Explicacao do log de transacoes citando a Pag. 8 e 13 |
 | **Teste Anti-Alucinacao** | *Qual e a escalacao da selecao brasileira em 2002?* | `"Nao encontrei essa informacao no documento."` |
+
+---
+
+## Apresentacao Tecnica (Deck de Slides de 10 min)
+
+O repositorio inclui um deck de slides interativo em HTML5/CSS3/JS, estruturado especificamente para uma apresentacao tecnica de ate 10 minutos (incluindo cronometro integrado, notas do apresentador, visao geral em grade e controle por teclado):
+
+```bash
+# Abrir a apresentacao tecnica no navegador padrao:
+python open_presentation.py
+```
+> O arquivo tambem pode ser aberto diretamente via [`presentation/index.html`](presentation/index.html) ou clicando duas vezes em `presentation/open_presentation.bat`.  
+> O roteiro verbal com minutagem detalhada esta documentado em [`presentation/ROTEIRO_APRESENTACAO.md`](presentation/ROTEIRO_APRESENTACAO.md).
 
 ---
 
