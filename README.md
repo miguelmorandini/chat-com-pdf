@@ -120,9 +120,14 @@ Abra o notebook diretamente na nuvem:
 
 5. **Execute:**
    ```bash
-   jupyter notebook chat_com_pdf.ipynb
-   # ou execute o app Gradio diretamente:
+   # Opção A: Executar o app web moderno de Chat Databricks (Streamlit):
+   streamlit run streamlit_app.py
+
+   # Opção B: Executar o app Gradio original (Chat com PDF):
    python app.py
+
+   # Opção C: Abrir os notebooks interativos:
+   jupyter notebook databricks_rag_assistant.ipynb
    ```
 
 ---
