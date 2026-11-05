@@ -44,6 +44,9 @@ ENV/
 # Vector DB
 chroma_db/
 
+# Streamlit Chat Sessions & History Cache
+.chat_sessions/
+
 # Backup files
 chat_com_pdf_original.ipynb
 
