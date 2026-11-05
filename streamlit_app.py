@@ -543,10 +543,10 @@ except Exception:
 # 7. Funções RAG e Consulta com Fallback
 # -----------------------------------------------------------------------------
 MODELOS_LLM = [
-    "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
     "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
     "gemini-1.5-pro"
 ]
 
@@ -578,37 +578,41 @@ def buscar_documentos_locais(pergunta, top_k=4):
 
 def executar_geracao_llm(prompt):
     """
-    Executa a geração com tratamento inteligente de stream e fallback robusto de modelos.
+    Executa a geração com tratamento inteligente de stream, backoff e fallback robusto de modelos.
     Avança o primeiro chunk para garantir que requisições (429, 400, 503) acionem o fallback
     imediatamente antes de renderizar para o usuário.
     """
     ultimo_erro = ""
     
-    # 1. Tenta streaming testando a resposta inicial de cada modelo
+    # 1. Tenta streaming testando a resposta inicial de cada modelo com backoff automático
     for modelo in MODELOS_LLM:
-        try:
-            stream = client.models.generate_content_stream(
-                model=modelo,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2)
-            )
-            # Avança o gerador para disparar a requisição HTTP e validar a resposta
-            primeiro_chunk = next(stream)
-            
-            def gerador_protegido():
-                if primeiro_chunk and primeiro_chunk.text:
-                    yield primeiro_chunk.text
-                try:
-                    for chunk in stream:
-                        if chunk and chunk.text:
-                            yield chunk.text
-                except Exception:
-                    pass
+        for tentativa in range(2):
+            try:
+                stream = client.models.generate_content_stream(
+                    model=modelo,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.2)
+                )
+                primeiro_chunk = next(stream)
+                
+                def gerador_protegido():
+                    if primeiro_chunk and primeiro_chunk.text:
+                        yield primeiro_chunk.text
+                    try:
+                        for chunk in stream:
+                            if chunk and chunk.text:
+                                yield chunk.text
+                    except Exception:
+                        pass
 
-            return gerador_protegido(), True, ""
-        except Exception as e:
-            ultimo_erro = str(e)
-            continue
+                return gerador_protegido(), True, ""
+            except Exception as e:
+                ultimo_erro = str(e)
+                # Se for erro de limite por minuto ou fila temporária, aguarda brevemente
+                if any(cod in ultimo_erro for cod in ["429", "503", "RESOURCE_EXHAUSTED", "overloaded"]):
+                    time.sleep(1.2 * (tentativa + 1))
+                else:
+                    break
             
     # 2. Se o streaming falhar em todos, tenta chamada direta convencional com cada modelo
     for modelo in MODELOS_LLM:
@@ -715,20 +719,27 @@ st.markdown(
 
 mensagens = conversa_atual.get("messages", [])
 
-# Sugestões Rápidas (Exibidas se a conversa atual estiver sem mensagens)
-if len(mensagens) == 0:
+# Verifica se há prompt pendente (seja de botão de sugestão ou de chat_input)
+tem_prompt_pendente = ("prompt_input" in st.session_state and bool(st.session_state.prompt_input))
+
+# Sugestões Rápidas (Exibidas se a conversa atual estiver sem mensagens e nenhuma pergunta tiver sido clicada)
+if len(mensagens) == 0 and not tem_prompt_pendente:
     st.markdown("##### Perguntas Sugeridas")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Camadas da Arquitetura Medalhão", use_container_width=True):
             st.session_state.prompt_input = "Qual a responsabilidade de cada camada (Bronze, Silver e Gold) na arquitetura Medalhão?"
+            st.rerun()
         if st.button("Unity Catalog vs Hive Metastore", use_container_width=True):
             st.session_state.prompt_input = "Como funciona o namespace de três níveis no Unity Catalog e quais as vantagens sobre o Hive Metastore?"
+            st.rerun()
     with col2:
         if st.button("Liquid Clustering no Delta Lake", use_container_width=True):
             st.session_state.prompt_input = "Como funciona o recurso de Liquid Clustering no Databricks e quando substitui o particionamento?"
+            st.rerun()
         if st.button("Declarative Pipelines no DLT", use_container_width=True):
             st.session_state.prompt_input = "O que são Spark Declarative Pipelines no Delta Live Tables (DLT)?"
+            st.rerun()
 
 # Renderiza histórico de mensagens da conversa atual
 for msg in mensagens:
@@ -810,7 +821,7 @@ if prompt_usuario:
                     "origem": res["origem"],
                     "fontes": res.get("fontes", [])
                 })
-            except Exception:
+            except Exception as e_stream:
                 st.markdown(
                     """
                     <div class="rate-limit-card">
@@ -826,17 +837,50 @@ if prompt_usuario:
                     unsafe_allow_html=True
                 )
         else:
-            st.markdown(
-                """
-                <div class="rate-limit-card">
-                    <div class="rate-limit-badge">
-                        <span>⏳</span> Cota Temporária Atingida (Rate Limit do Google AI Studio)
+            # Remove a mensagem de usuário da lista permanente caso não tenha obtido resposta
+            if conversa_atual["messages"] and conversa_atual["messages"][-1]["role"] == "user":
+                conversa_atual["messages"].pop()
+
+            erro_detalhe = str(res.get("erro", ""))
+            eh_chave_invalida = any(k in erro_detalhe for k in ["API_KEY_INVALID", "API key not valid", "400 INVALID_ARGUMENT"])
+
+            if eh_chave_invalida:
+                st.markdown(
+                    """
+                    <div class="rate-limit-card" style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08);">
+                        <div class="rate-limit-badge" style="color: #F87171;">
+                            <span>⚠️</span> Chave Gemini Não Reconhecida
+                        </div>
+                        <p class="rate-limit-text">
+                            A chave de API informada é inválida ou expirou.<br>
+                            Verifique se a chave em <strong>Settings > Secrets</strong> ou no menu lateral está correta.
+                        </p>
                     </div>
-                    <p class="rate-limit-text">
-                        A API gratuita da Google atingiu o limite de requisições por minuto ou está com fila momentânea (429/503).<br>
-                        <strong>Por favor, aguarde cerca de 15 a 30 segundos</strong> para a janela de 1 minuto resetar e envie sua pergunta novamente.
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    """
+                    <div class="rate-limit-card">
+                        <div class="rate-limit-badge">
+                            <span>⏳</span> Cota Temporária Atingida (Rate Limit do Google AI Studio)
+                        </div>
+                        <p class="rate-limit-text">
+                            A API gratuita da Google atingiu o limite de 15 requisições por minuto ou está com fila momentânea nos servidores.<br>
+                            <strong>Aguarde cerca de 15 a 30 segundos</strong> para a janela de 1 minuto resetar e clique em tentar novamente.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+            col_retry, _ = st.columns([1, 2])
+            with col_retry:
+                if st.button("🔄 Tentar Novamente", key=f"retry_{int(time.time()*1000)}", use_container_width=True):
+                    st.session_state.prompt_input = prompt_usuario
+                    st.rerun()
+
+            if erro_detalhe:
+                with st.expander("Ver detalhes do erro", expanded=False):
+                    st.code(erro_detalhe)
