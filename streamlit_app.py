@@ -543,19 +543,50 @@ except Exception:
 # -----------------------------------------------------------------------------
 # 7. Funções RAG e Consulta com Fallback
 # -----------------------------------------------------------------------------
-MODELOS_LLM = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-2.0-flash-lite"
-]
+@st.cache_data(ttl=1800, show_spinner=False)
+def obter_modelos_disponiveis(_cliente):
+    """
+    Descobre dinamicamente os modelos ativos e suportados para generateContent
+    na conta/chave do usuário no Google AI Studio, evitando erros 404 por modelos descontinuados.
+    """
+    padroes_fallback = [
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-3.6-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+    ]
+    try:
+        modelos_descobertos = []
+        for m in _cliente.models.list():
+            nome = m.name.replace("models/", "")
+            acoes = getattr(m, "supported_actions", []) or []
+            if not acoes or "generateContent" in acoes:
+                if "gemini" in nome.lower():
+                    modelos_descobertos.append(nome)
+        if modelos_descobertos:
+            flash_models = [m for m in modelos_descobertos if "flash" in m.lower()]
+            outros_models = [m for m in modelos_descobertos if "flash" not in m.lower()]
+            return flash_models + outros_models
+    except Exception:
+        pass
+    return padroes_fallback
 
 def buscar_documentos_locais(pergunta, top_k=4):
     if collection is None:
         return []
     try:
-        resp = client.models.embed_content(model="gemini-embedding-001", contents=pergunta)
-        if not resp.embeddings or len(resp.embeddings) == 0:
+        resp = None
+        for mod_emb in ["gemini-embedding-001", "text-embedding-004"]:
+            try:
+                resp = client.models.embed_content(model=mod_emb, contents=pergunta)
+                if resp.embeddings and len(resp.embeddings) > 0:
+                    break
+            except Exception:
+                continue
+        if not resp or not resp.embeddings or len(resp.embeddings) == 0:
             return []
         vetor = resp.embeddings[0].values
         res = collection.query(query_embeddings=[vetor], n_results=top_k)
@@ -579,12 +610,13 @@ def buscar_documentos_locais(pergunta, top_k=4):
 def executar_geracao_llm(prompt):
     """
     Executa a geração com tratamento inteligente de stream, backoff e fallback robusto de modelos.
-    Apenas modelos homologados e disponíveis na API gratuita são acionados.
+    Utiliza descoberta dinâmica de modelos ativos na conta do usuário.
     """
+    modelos = obter_modelos_disponiveis(client)
     erros_por_modelo = {}
     
     # 1. Tenta streaming testando a resposta inicial de cada modelo com backoff automático
-    for modelo in MODELOS_LLM:
+    for modelo in modelos:
         for tentativa in range(2):
             try:
                 stream = client.models.generate_content_stream(
@@ -608,13 +640,16 @@ def executar_geracao_llm(prompt):
             except Exception as e:
                 err_str = str(e)
                 erros_por_modelo[modelo] = err_str
+                # Se for erro de descontinuação (404), passa imediatamente para o próximo
+                if "404" in err_str:
+                    break
                 if any(cod in err_str for cod in ["429", "503", "RESOURCE_EXHAUSTED", "overloaded"]):
                     time.sleep(1.2 * (tentativa + 1))
                 else:
                     break
             
     # 2. Se o streaming falhar em todos, tenta chamada direta convencional com cada modelo
-    for modelo in MODELOS_LLM:
+    for modelo in modelos:
         try:
             resp = client.models.generate_content(
                 model=modelo,
