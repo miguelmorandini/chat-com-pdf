@@ -1,18 +1,38 @@
 # Projetos de RAG com Google Gemini
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chat-com-pdf.streamlit.app)
+[![GitHub license](https://img.shields.io/github/license/miguelmorandini/chat-com-pdf)](LICENSE)
+
 Este repositorio reune duas abordagens complementares de aplicacao da arquitetura **RAG (Retrieval-Augmented Generation)** com o **Google Gemini**:
 
 1. **[Chat com PDF](chat_com_pdf.ipynb):** Implementacao leve e direta para responder perguntas sobre documentos em PDF utilizando PyPDF2 e TF-IDF (Desafio Inicial).
 2. **[Assistente Databricks](databricks_rag_assistant.ipynb):** Plataforma avancada de RAG multi-documentos utilizando a documentacao tecnica oficial de Databricks, com **ChromaDB** e **Google Embeddings (`gemini-embedding-001`)**.
+3. **[Databricks Technical Assistant (Web App)](streamlit_app.py):** Interface conversacional moderna completa com streaming, historico de chats persistente e design Lakehouse, hospedada gratuitamente em produção no Streamlit Cloud: **[https://chat-com-pdf.streamlit.app](https://chat-com-pdf.streamlit.app)**.
 
 ---
 
-## Notebooks Disponiveis
+## 🚀 Aplicacao Web em Producao (Deploy Online Gratuito)
 
-| Notebook | Foco | Recuperacao | Armazenamento | LLM | Abrir no Colab |
+Acesse o assistente em tempo real diretamente no seu navegador, sem necessidade de instalar nada:
+
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chat-com-pdf.streamlit.app)
+
+👉 **Link Direto:** **[https://chat-com-pdf.streamlit.app](https://chat-com-pdf.streamlit.app)**
+
+- **Streaming em Tempo Real:** Respostas digitadas progressivamente na tela com `st.write_stream`.
+- **Memoria Conversacional Multi-Turnos:** Mantem o contexto das perguntas anteriores para dialogos tecnicos fluidos.
+- **Historico Persistente na Barra Lateral:** Permite iniciar novas conversas (`+ Nova Conversa`) e navegar entre chats passados.
+- **Descoberta Dinamica de Modelos:** Roteamento automatico entre modelos ativos da Google (`client.models.list()`) com protecao resiliente de cotas.
+
+---
+
+## Notebooks e Aplicacoes Disponiveis
+
+| Projeto / Notebook | Foco | Recuperacao | Armazenamento | LLM | Acesso Online |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`chat_com_pdf.ipynb`** | PDF Unico (Delta Lake eBook) | TF-IDF + Cosseno | Em memoria | `gemini-3.5-flash-lite` | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/chat_com_pdf.ipynb) |
-| **`databricks_rag_assistant.ipynb`** | Multi-Docs (Databricks Knowledge Base) | Embeddings Semanticos | ChromaDB Local | `gemini-3.5-flash-lite` | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/databricks_rag_assistant.ipynb) |
+| **`databricks_rag_assistant.ipynb`** | Multi-Docs (Databricks Knowledge Base) | Embeddings Semanticos | ChromaDB Local | Google Gemini | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/databricks_rag_assistant.ipynb) [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chat-com-pdf.streamlit.app) |
+| **`chat_com_pdf.ipynb`** | PDF Unico (Delta Lake eBook) | TF-IDF + Cosseno | Em memoria | Google Gemini | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/miguelmorandini/chat-com-pdf/blob/main/chat_com_pdf.ipynb) |
+| **`streamlit_app.py`** | Web App Completa (Deploy Nuvem) | RAG Hibrido + Fallback | ChromaDB / Memoria | Descoberta Dinamica | [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chat-com-pdf.streamlit.app) |
 
 ---
 
